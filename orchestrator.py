@@ -27,15 +27,15 @@ def run_script(script_name, description):
             text=True,
             check=True
         )
-        print(f"\n✓ {description} completed successfully")
+        print(f"\n[SUCCESS] {description} completed successfully")
         return True
 
     except subprocess.CalledProcessError as e:
-        print(f"\n✗ {description} failed with error code {e.returncode}")
+        print(f"\n[ERROR] {description} failed with error code {e.returncode}")
         return False
 
     except Exception as e:
-        print(f"\n✗ {description} failed: {str(e)}")
+        print(f"\n[ERROR] {description} failed: {str(e)}")
         return False
 
 def main():

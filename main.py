@@ -6,11 +6,41 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import requests
 import os
+import re
+import subprocess
 from datetime import datetime
 
 # ============== CONFIGURATION ==============
 HEADLESS = True  # Set to False to see the browser window
 # ===========================================
+
+def get_chrome_version():
+    """Detect installed Chrome version"""
+    try:
+        # Try Windows registry
+        result = subprocess.run(
+            ['reg', 'query', 'HKEY_CURRENT_USER\\Software\\Google\\Chrome\\BLBeacon', '/v', 'version'],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            version = re.search(r'version\s+REG_SZ\s+(\d+)', result.stdout)
+            if version:
+                return int(version.group(1))
+
+        # Try reading Chrome executable version
+        chrome_paths = [
+            r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+        ]
+        for path in chrome_paths:
+            if os.path.exists(path):
+                result = subprocess.run([path, '--version'], capture_output=True, text=True)
+                version = re.search(r'Chrome (\d+)', result.stdout)
+                if version:
+                    return int(version.group(1))
+    except:
+        pass
+    return None
 
 def download_latest_imf_pdf():
     """
@@ -29,7 +59,14 @@ def download_latest_imf_pdf():
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
 
-    driver = uc.Chrome(options=options)
+    # Auto-detect Chrome version
+    chrome_version = get_chrome_version()
+    if chrome_version:
+        print(f"Detected Chrome version: {chrome_version}")
+        driver = uc.Chrome(options=options, use_subprocess=True, version_main=chrome_version)
+    else:
+        print("Chrome version auto-detection failed, using default")
+        driver = uc.Chrome(options=options, use_subprocess=True)
 
     try:
         print(f"Accessing {url}...")

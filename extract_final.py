@@ -2,6 +2,7 @@ import pdfplumber
 import pandas as pd
 import os
 import re
+import json
 from datetime import datetime
 from openpyxl import Workbook
 
@@ -428,14 +429,61 @@ def process_single_pdf(pdf_path, reference_columns):
 
     return data_values
 
+def create_template_from_config():
+    """Create reference template from config.json if needed"""
+    print("\n[INFO] Creating reference template from config.json...")
+
+    with open('config.json', 'r') as f:
+        config = json.load(f)
+
+    sorted_mappings = sorted(config['column_mapping'].items(), key=lambda x: x[1]['order'])
+
+    columns = []
+    for col_name, col_info in sorted_mappings:
+        columns.append((col_name, col_info['display_name'].replace('_', ' ')))
+
+    date_col = [(config['date_format']['column_name'], f"Date ({config['date_format']['type']})")]
+    all_columns = date_col + columns
+
+    output_file = "IMFFA_DATA_.xlsx"
+
+    # Create Excel file with two header rows manually
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+
+    # Write first header row (technical names)
+    for idx, (tech_name, _) in enumerate(all_columns, start=1):
+        ws.cell(row=1, column=idx, value=tech_name)
+
+    # Write second header row (display names)
+    for idx, (_, display_name) in enumerate(all_columns, start=1):
+        ws.cell(row=2, column=idx, value=display_name)
+
+    # Write example data row
+    ws.cell(row=3, column=1, value=config['date_format']['example'])
+
+    wb.save(output_file)
+    print(f"  [SUCCESS] Template created: {output_file} ({len(all_columns)} columns)")
+    return output_file
+
 def main():
     print("="*80)
     print("IMF FINANCIAL ACTIVITIES DATA EXTRACTOR - BATCH MODE")
     print("="*80)
 
-    # Load reference
+    # Load or create reference
     excel_file = "IMFFA_DATA_.xlsx"
-    reference_columns = pd.read_excel(excel_file, sheet_name='Sheet1', header=[0, 1]).columns
+
+    if not os.path.exists(excel_file):
+        if os.path.exists('config.json'):
+            print("\n[INFO] Creating reference template from config.json...")
+            excel_file = create_template_from_config()
+        else:
+            print("\n[ERROR] Neither IMFFA_DATA_.xlsx nor config.json found!")
+            return
+
+    reference_columns = pd.read_excel(excel_file, sheet_name=0, header=[0, 1]).columns
     print(f"\nReference loaded: {len(reference_columns)} columns")
 
     # Find all PDFs
