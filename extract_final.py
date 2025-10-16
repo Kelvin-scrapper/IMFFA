@@ -197,18 +197,19 @@ def extract_gra_from_pdf(pdf_path):
                                 }
                                 print(f"  Found: {country_clean} ({country_code})")
 
-    # Calculate TOTAL
-    aggregates = ['STAND', 'EXTFUNDFAC', 'FLEXCREDLINE', 'PRELIQLINE']
-    totals = {}
-
-    for metric in ['AMCOM', 'AMUNDRAW', 'AMDRAW', 'CREDOUTAM']:
-        total = sum([all_data[agg][metric] for agg in aggregates if agg in all_data and all_data[agg][metric] is not None])
-        if total > 0:
-            totals[metric] = total
-
-    if totals:
-        all_data['TOTAL'] = {**totals, 'CREDOUTQUOT': None}
-        print(f"  Calculated TOTAL")
+                # Check for "Total Current GRA Arrangements" line
+                if 'TOTAL CURRENT GRA' in line_upper:
+                    match = re.search(r'\((\d+)\)\s+([\d,.-]+|--)\s+([\d,.-]+|--)\s+([\d,.-]+|--)\s+([\d,.-]+|--)', line)
+                    if match:
+                        all_data['TOTAL'] = {
+                            'AMCOM': clean_value(match.group(2)),
+                            'AMUNDRAW': clean_value(match.group(3)),
+                            'AMDRAW': clean_value(match.group(4)),
+                            'CREDOUTAM': clean_value(match.group(5)),
+                            'CREDOUTQUOT': None
+                        }
+                        print(f"  Found: Total Current GRA Arrangements")
+                        continue
 
     return all_data
 
