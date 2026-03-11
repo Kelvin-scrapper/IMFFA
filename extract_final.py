@@ -529,8 +529,9 @@ def main():
     print(f"CREATING COMBINED OUTPUT")
     print(f"{'='*80}")
 
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_file = f"IMFFA_DATA_OUTPUT_{timestamp}.xlsx"
+    # Create output folder
+    os.makedirs('output', exist_ok=True)
+    output_file = os.path.join('output', 'IMFFA_DATA_OUTPUT.xlsx')
 
     wb = Workbook()
     ws = wb.active
