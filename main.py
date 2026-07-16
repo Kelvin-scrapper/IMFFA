@@ -38,7 +38,7 @@ if sys.platform == 'win32':
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-HEADLESS = True  # Set to False to see the browser window
+HEADLESS = False  # Set to False to see the browser window
 BROWSER = "chrome"  # Options: "chromium", "chrome", "firefox", "webkit"
 
 # ============================================================================
