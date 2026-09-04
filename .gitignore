@@ -1,0 +1,10 @@
+node_modules/
+.chrome_profile/
+logs/
+downloads/
+Downloads/
+output/
+*.log
+IMFFA_DATA_.xlsx
+.venv/
+__pycache__/

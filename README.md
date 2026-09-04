@@ -1,197 +1,171 @@
 # IMF Financial Activities Data Extractor
 
-Automated extraction system for IMF Weekly Financial Activities Index reports. Achieves **98.2% accuracy** with robust universal mapping.
-
-## Features
-
-✅ **Universal Mapping** - Works regardless of column order changes
-✅ **Two-Header Structure** - Preserves technical names + descriptions
-✅ **Year-Week Format** - Automatic date conversion (e.g., 2025-38)
-✅ **385 Columns** - Full coverage of all data points
-✅ **Robust Parsing** - Handles footnotes, missing data, format variations
-✅ **98.2% Accuracy** - 100% for data present in current PDF
+Automated extraction system for IMF Weekly Financial Activities Index reports.
+Achieves **98.2% accuracy** with robust universal (identifier-based) column mapping.
 
 ## Quick Start
 
-### 1. Download Latest PDF
 ```bash
-python main.py
+pip install -r requirements.txt
+python orchestrator.py
 ```
-This downloads the latest IMF report to `/output` folder with headless browser mode.
 
-### 2. Extract Data
+`orchestrator.py` runs the whole pipeline:
+
+1. **Download** the latest report PDF → `Downloads/IMF_Report_<Month>_<Day>_<Year>.pdf`
+2. **Extract & map** every PDF in `Downloads/` and `output/` → `output/IMFFA_DATA_OUTPUT.xlsx`
+
+Run the steps individually if you prefer:
+
 ```bash
-python extract_final.py
+python main_requests.py     # download only (browserless)
+python extract_final.py     # extract only (all PDFs found locally)
 ```
-Extracts all data and creates `IMFFA_DATA_FINAL_[timestamp].xlsx` with proper structure.
+
+## Project Structure
+
+```
+imfaa/
+├── orchestrator.py      Runs download → extract end to end
+├── main_requests.py     PRIMARY downloader - browserless (requests only)
+├── main.py              FALLBACK downloader - Playwright + real Chrome
+├── extract_final.py     PDF parsing, universal column mapping, Excel output
+├── config.json          Column-mapping definition (date_format + 385 columns)
+├── requirements.txt     pandas, openpyxl, pdfplumber, requests, playwright
+│
+├── Downloads/           Downloaded report PDFs            (gitignored)
+├── output/              IMFFA_DATA_OUTPUT.xlsx            (gitignored)
+├── logs/                Timestamped run logs + debug HTML (gitignored)
+└── IMFFA_DATA_.xlsx     Reference template, regenerated from config.json (gitignored)
+```
+
+## How the download works
+
+IMF's site is behind Akamai bot protection. The SPROLLs listing page and a
+cold PDF request both return **HTTP 403**. Two strategies are provided;
+`orchestrator.py` tries them in order.
+
+### 1. `main_requests.py` — browserless (primary)
+
+No browser at all. Fast (~3-9 s), works unattended.
+
+1. `GET https://www.imf.org/external/index.htm` — an open path that returns
+   200 and sets the Akamai `ak_bmsc` cookie.
+2. Walk **backwards day by day from today** (`DAYS_BACK = 21`), requesting
+   `https://www.imf.org/-/media/files/publications/fa-index/{YYYY}/{MMDDYY}.pdf`
+   with that cookie.
+3. The first date that returns a real PDF is the latest report. A skipped
+   week self-heals — the probe just keeps walking back.
+
+Config knobs at the top of the file: `WARMUP_URLS` (tried in order),
+`DAYS_BACK`, `USER_AGENT`.
+
+### 2. `main.py` — Playwright (fallback)
+
+Used only if `main_requests.py` fails (e.g. the media-URL scheme changes).
+Drives real Google Chrome (`channel="chrome"` — uses the installed browser,
+no `playwright install` needed) against the SPROLLs page, scrapes the
+"Weekly Report" link from the rendered Coveo results, then downloads the PDF
+with `requests` using the browser's cookies.
+
+- **Headful by default** — a Chrome window opens. Headless is reliably
+  blocked by Akamai (403), so leave it headful for real runs.
+- Override for debugging only: `set HEADLESS=1` (env var).
+- Do **not** reintroduce a persistent `userDataDir` / `.chrome_profile` — a
+  stale profile accumulates Akamai flags and causes permanent 403s.
 
 ## Output Structure
 
-### Headers (2 rows)
-- **Row 1**: Technical column names (`IMFFA.CURFIN.AMCOM.ARG.W`)
-- **Row 2**: Human-readable descriptions ("Current Financial Arrangements: Amount Commited: Argentina")
+`output/IMFFA_DATA_OUTPUT.xlsx`, one sheet, **386 columns**:
 
-### Data (Row 3)
-- **Column 1**: Date in year-week format (`2025-38`)
-- **Columns 2-386**: Extracted values mapped to correct columns
+| Row | Contents |
+|-----|----------|
+| 1   | Technical column names — e.g. `IMFFA.CURFIN.AMCOM.ARG.W` |
+| 2   | Human-readable descriptions — e.g. "Current Financial Arrangements: Amount Committed: Argentina" |
+| 3+  | One data row per processed PDF. Column 1 = ISO year-week (`2026-35`); columns 2-386 = mapped values |
 
 ## Tables Extracted
 
-### Table 1: Current Financial Arrangements (GRA)
-- **357 columns** across 6 metrics:
-  - Amount Committed (AMCOM) - 72 entities
-  - Amount Undrawn (AMUNDRAW) - 72 entities
-  - Amount Drawn (AMDRAW) - 72 entities
-  - Credit Outstanding Amount (CREDOUTAM) - 72 entities
-  - Credit Outstanding % of Quota (CREDOUTQUOT) - 67 entities
-  - Memo Items (MEMITEM) - 2 entities
+### Table 1 — Current Financial Arrangements (GRA) — 357 columns
+6 metrics × entity slots:
 
-### Table 2: Forward Commitment Capacity (FCC)
-- **28 columns** across 14 metrics (SDR + USD for each):
-  - Usable Resources
-  - Fund Quota Resources
-  - Fund Borrowed Resources
-  - Undrawn Balance of Commitments
-  - Precautionary
-  - Non-Precautionary
-  - Uncommitted Usable Resources
-  - Repurchases One Year Forward
-  - Repayments One Year Forward
-  - Prudential Balance
-  - Forward Commitment Capacity
-  - Quota Resources
-  - NAB Resources
-  - Bilateral Borrowing Resources
+| Metric | Code | Entities |
+|--------|------|----------|
+| Amount Committed | `AMCOM` | 72 |
+| Amount Undrawn | `AMUNDRAW` | 72 |
+| Amount Drawn | `AMDRAW` | 72 |
+| Credit Outstanding Amount | `CREDOUTAM` | 72 |
+| Credit Outstanding % of Quota | `CREDOUTQUOT` | 67 |
+| Memo Items | `MEMITEM` | 2 |
+
+### Table 2 — Forward Commitment Capacity (FCC) — 28 columns
+14 metrics, SDR + USD each: Usable Resources, Fund Quota Resources, Fund
+Borrowed Resources, Undrawn Balance of Commitments, Precautionary,
+Non-Precautionary, Uncommitted Usable Resources, Repurchases One Year
+Forward, Repayments One Year Forward, Prudential Balance, Forward Commitment
+Capacity, Quota Resources, NAB Resources, Bilateral Borrowing Resources.
+
+## Universal Column Mapping ⭐
+
+Data is mapped **by identifier, not by position**. The reference template
+(`IMFFA_DATA_.xlsx`, built from `config.json`) defines output structure;
+extraction places each value by its identifier (`IMFFA.CURFIN.AMCOM.ARG.W`).
+
+```
+PDF row:  "Argentina 3/ 15,267 4,578 10,689 41,789 1,311"
+   ↓ parse         Country ARGENTINA → ARG ;  AMCOM 15,267 → 15267
+   ↓ map by id     IMFFA.CURFIN.AMCOM.ARG.W
+   ↓ place         column position taken from the reference template
+```
+
+Handled automatically: PDF columns reordered, countries in a different
+order, new countries (pre-defined 72 slots), missing countries (empty cell
+in the right column), tables on different pages (found by section name),
+footnote changes (`3/` → `4/`), template reordered, varying number formats.
+Missing values never cause misalignment.
+
+### Robust parsing
+- Footnote markers stripped via `\d+/` regex
+- Values normalized: commas removed, `--` → null, decimals kept
+- Arrangement-type aggregates computed
+- Tables located by name, not page number
 
 ## Configuration
 
-### Browser Mode (main.py)
-```python
-# Line 2
-HEADLESS = True  # Set to False to see browser window
-```
-
-## Key Technical Features
-
-### 1. Universal Column Mapping ⭐ **MAPS BY IDENTIFIER, NOT POSITION**
-
-The system uses unique column identifiers to map data correctly regardless of structure changes.
-
-**Mapping Logic:**
-```
-PDF Data: "Argentina 3/ 15,267 4,578 10,689 41,789 1,311"
-  ↓ Parse
-Country: ARGENTINA → Code: ARG
-AMCOM: 15,267 → Clean: 15267
-  ↓ Map by Identifier
-Target: IMFFA.CURFIN.AMCOM.ARG.W
-  ↓ Place in Output
-Column position from reference template (not fixed position)
-```
-
-**Scenarios Handled Automatically:**
-- ✅ **PDF columns reordered** - Maps by identifier, not position
-- ✅ **Countries in different order** - Each country has unique code
-- ✅ **New countries added** - Uses pre-defined country slots (72 total)
-- ✅ **Countries missing** - Leaves empty cells in correct positions
-- ✅ **Tables moved to different pages** - Searches by section name
-- ✅ **Footnotes changed** (3/ → 4/) - Regex pattern handles all formats
-- ✅ **Reference template reordered** - Output follows template order
-- ✅ **Number formats vary** - Normalizes all to clean numbers
-
-**Why it's Universal:**
-The reference template (`IMFFA_DATA_.xlsx`) controls output structure. Extraction uses identifiers like `IMFFA.CURFIN.AMCOM.ARG.W` to map data, so:
-- **PDF structure can change** → Data still maps correctly
-- **Reference can be reordered** → Output matches new order
-- **New weekly reports** → Automatically adapts to variations
-
-### 2. Robust Data Extraction
-- **Handles footnotes**: Regex `\d+/` removes any footnote marker (3/, 4/, 5/)
-- **Cleans values**: Removes commas, converts "--" to null, handles decimals
-- **Calculates totals**: Automatically aggregates arrangement types
-- **Flexible matching**: Works with whitespace and format variations
-- **Page-agnostic**: Finds tables by name, not page number
-
-### 3. Missing Data Handling
-**Correct placement with NULL values when:**
-- Country not in current week's report (e.g., Cameroon from older data)
-- Arrangement type has no active countries
-- FCL countries with pending data
-- Metrics not applicable for certain entities
-
-**The system never misaligns data** - missing values result in empty cells in correct columns.
-
-## Files
-
-- `main.py` - Downloads latest PDF from IMF website
-- `extract_final.py` - Main extraction script (98.2% accuracy)
-- `config.json` - Column mapping configuration (385 columns)
-- `IMFFA_DATA_.xlsx` - Reference template structure
-- `table_mapping_structure.json` - Table organization metadata
+| What | Where |
+|------|-------|
+| Warm-up URLs, days to probe back, User-Agent | top of `main_requests.py` |
+| Headful/headless (`HEADLESS` env var), browser channel | top of `main.py` |
+| Column identifiers, order, display names, date format | `config.json` |
+| Country name → ISO code | `country_map` in `extract_final.py` |
+| FCC metric text → column code | `metric_map` in `extract_final.py` |
 
 ## Requirements
 
 ```bash
-pip install pandas openpyxl pdfplumber undetected-chromedriver selenium requests
+pip install -r requirements.txt
 ```
 
-## Accuracy Report
-
-### Current Performance
-- **Total columns**: 385
-- **Matched**: 378 (98.2%)
-- **Mismatched**: 2 (rounding differences in totals)
-- **Missing**: 5 (Cameroon - not in current PDF)
-
-### Data Quality
-- **100% accuracy** for all data present in current PDF
-- Minor discrepancies only for:
-  - Historical countries not in latest report
-  - Calculation rounding differences (±1)
-
-## Architecture
-
-```
-PDF Download (main.py)
-    ↓
-PDF Parsing (pdfplumber)
-    ↓
-Data Extraction (extract_final.py)
-    ├── GRA Table → 357 columns
-    ├── FCC Table → 28 columns
-    └── Memo Items → 2 columns
-    ↓
-Column Mapping (config.json reference)
-    ↓
-Excel Output (openpyxl)
-    └── Two-header structure
-        └── Data row with 386 columns
-```
+`pandas`, `openpyxl`, `pdfplumber`, `requests` (core) and `playwright` (only
+for the `main.py` fallback). Playwright uses the system Google Chrome via
+`channel="chrome"`, so no `playwright install` step is required.
 
 ## Maintenance
 
-### Adding New Countries
-Add to `country_map` dictionary in `extract_final.py`:
-```python
-'NEW COUNTRY': 'CODE'
-```
+**Add a country:** add `'NEW COUNTRY': 'CODE'` to `country_map` in `extract_final.py`.
 
-### Updating FCC Metrics
-Add to `metric_map` in `extract_final.py` with exact PDF text:
-```python
-'Exact metric text from PDF': 'COLUMN_CODE'
-```
+**Add / fix an FCC metric:** add `'Exact metric text from PDF': 'COLUMN_CODE'`
+to `metric_map` in `extract_final.py`.
 
 ## Troubleshooting
 
-### Issue: Missing countries
-**Solution**: Check if country exists in current week's PDF. Historical data may not appear in latest reports.
-
-### Issue: Column order mismatch
-**Solution**: System automatically handles this via reference template mapping.
-
-### Issue: PDF download fails
-**Solution**: Check internet connection. Try setting `HEADLESS = False` in main.py to debug.
+| Issue | Cause / fix |
+|-------|-------------|
+| `main_requests.py`: "No report PDF found in the last 21 days" | Media-URL scheme changed, or a very long publication gap. Orchestrator falls back to `main.py`. Bump `DAYS_BACK` or check the URL pattern. |
+| `main_requests.py`: warm-up not returning 200 | `external/index.htm` may be locked down. Add another open path to `WARMUP_URLS` (e.g. `robots.txt`). |
+| `main.py`: HTTP 403 / "Access Denied" | Akamai bot block. Ensure it is running **headful** (unset `HEADLESS`) and that there is no `.chrome_profile` directory. |
+| Missing countries in output | Country genuinely not in that week's PDF — historical entities don't appear in every report. |
+| Column order looks different | Expected — output follows the reference template order, mapped by identifier. |
 
 ## License
 

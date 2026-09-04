@@ -46,13 +46,18 @@ def main():
     print(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     # Step 1: Download PDF
+    # Try the browserless downloader first; fall back to the Playwright scraper.
     print_header("STEP 1: DOWNLOAD LATEST PDF")
 
-    if not os.path.exists("main.py"):
-        print("✗ ERROR: main.py not found")
-        return
-
-    success = run_script("main.py", "PDF Download")
+    success = False
+    for script, desc in (("main_requests.py", "PDF Download (browserless)"),
+                         ("main.py", "PDF Download (Playwright fallback)")):
+        if not os.path.exists(script):
+            continue
+        success = run_script(script, desc)
+        if success:
+            break
+        print(f"\n⚠ {desc} failed; trying next method...")
 
     if not success:
         print("\n⚠ Warning: PDF download failed. Will proceed with existing PDFs...")
@@ -80,11 +85,10 @@ def main():
     print(f"End time:      {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Duration:      {duration:.1f} seconds")
 
-    # Find output file
-    output_files = [f for f in os.listdir('.') if f.startswith('IMFFA_DATA_OUTPUT_') and f.endswith('.xlsx')]
-    if output_files:
-        latest_output = sorted(output_files)[-1]
-        print(f"\nOutput file:   {latest_output}")
+    # Find output file (extract_final.py writes output/IMFFA_DATA_OUTPUT.xlsx)
+    output_path = os.path.join('output', 'IMFFA_DATA_OUTPUT.xlsx')
+    if os.path.exists(output_path):
+        print(f"\nOutput file:   {output_path}")
 
     print("\n" + "="*80)
     print("WORKFLOW COMPLETED SUCCESSFULLY".center(80))

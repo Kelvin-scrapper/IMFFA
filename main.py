@@ -1,5 +1,4 @@
-
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import sync_playwright
 import os
 import re
 from datetime import datetime
@@ -38,7 +37,9 @@ if sys.platform == 'win32':
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-HEADLESS = False  # Set to False to see the browser window
+# Headful by default. Override with env var: set HEADLESS=1 (or true) for
+# unattended runs. Headless is riskier against IMF's Akamai bot detection.
+HEADLESS = os.environ.get("HEADLESS", "").lower() in ("1", "true", "yes")
 BROWSER = "chrome"  # Options: "chromium", "chrome", "firefox", "webkit"
 
 # ============================================================================
@@ -61,7 +62,9 @@ def save_screenshot(page, filename_prefix="screenshot"):
     """Save screenshot for debugging"""
     try:
         screenshot_path = f'logs/{filename_prefix}_{timestamp}.png'
-        page.screenshot(path=screenshot_path, full_page=True)
+        # Viewport-only + short timeout: full_page screenshots hang for ~30s on
+        # the IMF page's lazy-loaded layout, and these are only debug artifacts.
+        page.screenshot(path=screenshot_path, full_page=False, timeout=10000)
         logging.info(f"Screenshot saved: {screenshot_path}")
         return screenshot_path
     except Exception as e:
@@ -122,8 +125,22 @@ def download_latest_imf_pdf():
         try:
             # Navigate to page - use 'domcontentloaded' instead of 'networkidle' for faster, more reliable loading
             logging.info(f"Accessing URL: {url}")
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            logging.info("Page loaded, waiting for content to render...")
+            nav_response = page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+            # Fail fast with a clear message on an Akamai block instead of later
+            # timing out on selectors against an "Access Denied" page.
+            status = nav_response.status if nav_response else None
+            if status and status >= 400:
+                body_snippet = ""
+                try:
+                    body_snippet = page.content()[:300]
+                except Exception:
+                    pass
+                raise Exception(
+                    f"IMF returned HTTP {status} (Akamai bot block). "
+                    f"Headless runs are blocked - run headful (unset HEADLESS). {body_snippet}"
+                )
+            logging.info(f"Page loaded (HTTP {status}), waiting for content to render...")
 
             # Wait for Coveo search results to fully load
             try:
